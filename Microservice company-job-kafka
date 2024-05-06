@@ -1,0 +1,754 @@
+Company Microservice
+
+// kafkaProducer  ---------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+package com.company.compKafka;
+import com.company.model.CompanyModel;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.stereotype.Service;
+
+@Service
+public class KafkaProducer {
+    private final KafkaTemplate<String, String> kafkaTemplate;
+
+
+
+    @Autowired
+    public KafkaProducer(KafkaTemplate<String, String> kafkaTemplate) {
+        this.kafkaTemplate = kafkaTemplate;
+    }
+
+    public void sendCompanyId(String companyId) {
+        System.out.println("Sending companyId to Kafka topic: companyKafka");
+        kafkaTemplate.send("companyKafka", companyId);
+    }
+}
+
+
+
+
+// kafkaTopic  -----------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+package com.company.compKafka;
+
+import org.apache.kafka.clients.admin.NewTopic;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.config.TopicBuilder;
+
+@Configuration
+public class kafkaTopic {
+
+    @Bean
+    NewTopic myTopic() {
+        return TopicBuilder.name("companyKafka").build();
+    }
+}
+
+
+
+// company controller  ---------------------------------------------------------------------------------------------------------------------------------------------------------
+
+package com.company.controller;
+
+import com.company.compKafka.KafkaProducer;
+import com.company.model.CompanyModel;
+import com.company.service.CompanyService;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import java.util.List;
+
+@RestController
+@RequestMapping("/company")
+public class CompanyController {
+
+    @Autowired
+    private CompanyService companyService;
+
+    //getAllCompany
+    @GetMapping("/getAll")
+    public ResponseEntity<?>getAllCompany(){
+        List<CompanyModel> allCompany=companyService.getAllCompany();
+        if(!allCompany.isEmpty()){
+            return ResponseEntity.ok(allCompany);
+        }
+        else{
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("not fetched all company info");
+        }
+    }
+
+    // getByCompanyId
+    @GetMapping("/getById/{id}")
+    public ResponseEntity<?>getByCompanyId(@PathVariable("id") String companyId){
+        CompanyModel company=companyService.getByCompanyId(companyId);
+        if(company!=null){
+            return ResponseEntity.ok(company);
+        }
+        else{
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("not fetched company info based on given id");
+        }
+    }
+
+    // createCompany
+    @PostMapping("/post")
+    public ResponseEntity<?>createCompany(@RequestBody CompanyModel companyModel){
+        CompanyModel company=companyService.createCompany(companyModel);
+        kafkaProducer.sendCompanyId(companyModel.getCompanyId());
+        if(company!=null){
+            return ResponseEntity.ok("created successfully");
+        }
+        else{
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("not created");
+        }
+    }
+
+    // updateCompany
+    @PutMapping("/modify/{id}")
+    public ResponseEntity<?>updateCompany(@PathVariable("id") String companyId,@RequestBody CompanyModel companyModel){
+        CompanyModel company=companyService.updateCompany(companyId,companyModel);
+        if(company!=null){
+            return ResponseEntity.ok(company);
+        }
+        else{
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("not updated");
+        }
+    }
+
+    // deleteCompanyById
+    @DeleteMapping("del/{id}")
+    public ResponseEntity<?>deleteByCompanyId(@PathVariable("id") String companyId){
+        try{
+            companyService.deleteCompanyById(companyId);
+            return ResponseEntity.ok("deleted successfully");
+        }
+        catch(Exception e){
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("not deleted based on given id");
+        }
+    }
+
+
+    // findByJobName
+    @GetMapping("/getBy/{jobName}")
+    public ResponseEntity<?>getByJobName(@PathVariable String jobName){
+        List<CompanyModel>allJob=companyService.getByjobName(jobName);
+        if(!allJob.isEmpty()){
+            return ResponseEntity.ok(allJob);
+        }
+        else{
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("not fetched by job name");
+        }
+
+    }
+
+
+    @Autowired
+    private KafkaProducer kafkaProducer;
+
+//    @GetMapping("/getKafka")
+//    public ResponseEntity<String> get() {
+//        // Assuming you have the companyId available
+//
+//        kafkaProducer.sendCompanyId();
+//        return ResponseEntity.ok("CompanyId sent to Kafka topic: companyKafka");
+//    }
+
+
+}
+
+
+
+// company model  --------------------------------------------------------------------------------------------------------------------------------------------------
+
+package com.company.model;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import org.springframework.data.mongodb.core.mapping.Document;
+import org.springframework.data.mongodb.core.mapping.MongoId;
+
+@Document
+@Setter
+@Getter
+@NoArgsConstructor
+@AllArgsConstructor
+public class CompanyModel {
+
+    @MongoId
+    private String companyId;   // autogenerated id UUID
+    private String companyName;
+    private String description;
+    private String jobName;
+}
+
+
+
+// company repository   -------------------------------------------------------------------------------------------------------------------------------------------------
+
+package com.company.repository;
+
+import com.company.model.CompanyModel;
+import org.springframework.data.mongodb.repository.MongoRepository;
+
+import java.util.List;
+
+public interface CompanyRepository extends MongoRepository<CompanyModel,String> {
+
+    List<CompanyModel> findByjobName(String jobName);
+
+}
+
+
+// company service   ---------------------------------------------------------------------------------------------------------------------------------------
+
+package com.company.service;
+
+import com.company.model.CompanyModel;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public interface CompanyService {
+
+    // getAllCompany
+    List<CompanyModel> getAllCompany();
+
+    // getCompanyById
+    CompanyModel getByCompanyId(String companyId);
+
+    // createCompany
+    CompanyModel createCompany(CompanyModel companyModel);
+
+    // updateCompany
+    CompanyModel updateCompany(String companyId,CompanyModel companyModel);
+
+    // deleteCompanyById
+    void deleteCompanyById(String companyId);
+
+
+    // getByjobName
+    List<CompanyModel>getByjobName(String jobName);
+
+}
+
+
+
+// service impl -------------------------------------------------------------------------------------------------------------------------------
+
+
+package com.company.serviceImpl;
+
+import com.company.model.CompanyModel;
+import com.company.repository.CompanyRepository;
+import com.company.service.CompanyService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import java.util.List;
+import java.util.NoSuchElementException;
+
+
+@Service
+public class CompanyServiceImpl implements CompanyService {
+
+    @Autowired
+    private CompanyRepository companyRepository;
+
+    @Override
+    public List<CompanyModel> getAllCompany() {
+        List<CompanyModel>allCompany=companyRepository.findAll();
+        return allCompany;
+    }
+
+    @Override
+    public CompanyModel getByCompanyId(String companyId) {
+        CompanyModel company=companyRepository.findById(companyId).orElse(null);
+        return company;
+    }
+
+    @Override
+    public CompanyModel createCompany(CompanyModel companyModel) {
+        CompanyModel company=companyRepository.save(companyModel);
+        return company;
+    }
+
+    @Override
+    public CompanyModel updateCompany(String companyId, CompanyModel companyModel) {
+        boolean result=companyRepository.existsById(companyId);
+        if(result){
+            companyModel.setCompanyId(companyId);
+            CompanyModel company=companyRepository.save(companyModel);
+            return company;
+        }
+        else{
+            return null;
+        }
+    }
+
+    @Override
+    public void deleteCompanyById(String companyId) {
+        boolean result=companyRepository.existsById(companyId);
+        if(result){
+            companyRepository.deleteById(companyId);
+        }
+        else{
+            throw new NoSuchElementException();
+        }
+
+    }
+
+    @Override
+    public List<CompanyModel> getByjobName(String jobName) {
+        return companyRepository.findByjobName(jobName);
+    }
+
+
+}
+
+
+
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Job Microservice
+
+
+
+// client -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+package com.job.client;
+import com.job.external.Company;
+import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+
+import java.util.List;
+
+@FeignClient(name = "company-service",url = "http://localhost:8082")
+public interface CompanyClient {
+    @GetMapping("/company/getById/{companyId}")
+    Company getById(@PathVariable("companyId")  String companyId);
+
+    @GetMapping("/company/getBy/{jobName}")
+    List<Company> getByJobName(@PathVariable String jobName);
+}
+
+
+
+
+// external ---------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+package com.job.external;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Setter
+@Getter
+@NoArgsConstructor
+@AllArgsConstructor
+public class Company {
+    private String companyId;
+    private String companyName;
+    private String description;
+    private String jobName;
+}
+
+
+// dto ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+package com.job.dto;
+
+import com.job.external.Company;
+import com.job.model.JobModel;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+import java.util.List;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+
+
+public class CompanyJobDTO {
+    private JobModel jobModel;
+    private List<Company> company;
+}
+
+
+// kafka --------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+package com.job.kafka;
+
+import com.job.model.JobModel;
+import com.job.repository.JobRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.stereotype.Service;
+
+@Service
+public class Consumer {
+
+    @Autowired
+    private JobRepository jobRepository;
+
+    public String message = ""; // Declare a variable to hold the message
+
+    @KafkaListener(topics = "companyKafka", groupId = "myGroup")
+    public void kafkaConsume(String receivedMessage) {
+        // Store the received message in the message variable
+        message = receivedMessage;
+    }
+}
+
+
+// model -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+package com.job.model;
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Entity
+@Table(name="job")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+
+public class JobModel {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long jobId;
+    private String jobName;
+    private String jobLocation;
+    private String salary;
+
+    // in microservice
+    private String companyId;
+
+}
+
+
+// repository -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+package com.job.repository;
+
+import com.job.model.JobModel;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+
+public interface JobRepository extends JpaRepository<JobModel,Long> {
+
+    JobModel findByjobName(String jobName);
+}
+
+
+// service -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+package com.job.service;
+
+
+import com.job.dto.CompanyJobDTO;
+import com.job.model.JobModel;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public interface JobService {
+
+    // getAllJob
+//    List<CompanyJobDTO> getAllJob();
+
+    // getJobById
+    // JobModel getByJobId(Long jobId);
+
+    CompanyJobDTO getByJobId(Long jobId);
+
+    // getByJobName
+    //JobModel getByjobName(String jobName);
+
+    CompanyJobDTO getByjobName(String jobName);
+
+
+
+    // createJob
+    JobModel createJob(JobModel jobModel);
+
+    // updateJob
+    JobModel updateJob(Long jobId,JobModel jobModel);
+
+    // deleteJobById
+    void deleteJobById(Long jobId);
+
+
+}
+
+
+// service impl ----------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+package com.job.serviceImpl;
+import com.job.client.CompanyClient;
+import com.job.dto.CompanyJobDTO;
+import com.job.external.Company;
+import com.job.kafka.Consumer;
+import com.job.model.JobModel;
+import com.job.repository.JobRepository;
+import com.job.service.JobService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.NoSuchElementException;
+
+@Service
+public class JobServiceImpl implements JobService {
+
+    @Autowired
+    private JobRepository jobRepository;
+
+//    @Override
+//    public List<JobModel> getAllJob() {
+//        List<JobModel>allJob=jobRepository.findAll();
+//        return allJob;
+//    }
+
+//
+//
+//    @Override
+//    public List<CompanyJobDTO> getAllJob() {
+//        List<JobModel>allJob=jobRepository.findAll();
+//        RestTemplate restTemplate=new RestTemplate();
+//        List<CompanyJobDTO>companyJobDTOS=new ArrayList<>();
+//        for(JobModel job:allJob){
+//            CompanyJobDTO companyJobDTO=new CompanyJobDTO();
+//            companyJobDTO.setJobModel(job);
+//            Company company=restTemplate.getForObject("http://localhost:8082/company/getById/"+job.getCompanyId()
+//                    ,Company.class);
+//            companyJobDTO.setCompany(company);
+//            companyJobDTOS.add(companyJobDTO);
+//
+//        }
+//        return companyJobDTOS;
+//    }
+
+    @Autowired
+    private CompanyClient companyClient;
+
+
+//    @Override
+//    public List<CompanyJobDTO> getAllJob() {
+//        List<JobModel> allJob = jobRepository.findAll();
+//        List<CompanyJobDTO> companyJobDTOS = new ArrayList<>();
+//        for (JobModel job : allJob) {
+//            CompanyJobDTO companyJobDTO = new CompanyJobDTO();
+//            companyJobDTO.setJobModel(job);
+//            Company company = companyClient.getById(job.getCompanyId());
+//            companyJobDTO.setCompany(company);
+//            companyJobDTOS.add(companyJobDTO);
+//        }
+//        return companyJobDTOS;
+//    }
+
+
+
+//    @Override
+//    public JobModel getByJobId(Long jobId) {
+//        JobModel job =jobRepository.findById(jobId).orElse(null);
+//        return job;
+//    }
+
+
+    @Override
+    public CompanyJobDTO getByJobId(Long jobId) {
+        JobModel job =jobRepository.findById(jobId).orElse(null);
+        CompanyJobDTO companyJobDTO=new CompanyJobDTO();
+        companyJobDTO.setJobModel(job);
+        Company company = companyClient.getById(job.getCompanyId());
+        companyJobDTO.setCompany(Collections.singletonList(company));
+        return companyJobDTO;
+    }
+
+    @Override
+    public CompanyJobDTO getByjobName(String jobName) {
+        JobModel job=jobRepository.findByjobName(jobName);
+        CompanyJobDTO companyJobDTO=new CompanyJobDTO();
+        companyJobDTO.setJobModel(job);
+        List<Company> company=companyClient.getByJobName(jobName);
+        companyJobDTO.setCompany(company);
+        companyJobDTO.setCompany(company);
+        return companyJobDTO;
+    }
+
+
+    @Autowired
+    private Consumer consumer;
+    @Override
+    public JobModel createJob(JobModel jobModel) {
+        String companyIdFromKafka = consumer.message;
+        System.out.print(companyIdFromKafka+".....pppp");
+
+        // Set companyId in the JobModel object
+        jobModel.setCompanyId(companyIdFromKafka);
+
+        JobModel job=jobRepository.save(jobModel);
+        return job;
+    }
+
+    @Override
+    public JobModel updateJob(Long jobId, JobModel jobModel) {
+        boolean result=jobRepository.existsById(jobId);
+        if(result){
+            jobModel.setJobId(jobId);
+            JobModel job=jobRepository.save(jobModel);
+            return job;
+        }
+        else{
+            return null;
+        }
+    }
+
+    @Override
+    public void deleteJobById(Long jobId) {
+        boolean result=jobRepository.existsById(jobId);
+        if(result){
+            jobRepository.deleteById(jobId);
+        }
+        else{
+            throw new NoSuchElementException();
+        }
+    }
+}
+
+
+// job controller -----------------------------------------------------------------------------------------------------------------------------------------------------------
+
+package com.job.controller;
+
+import com.job.dto.CompanyJobDTO;
+import com.job.model.JobModel;
+import com.job.service.JobService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import java.util.List;
+
+
+@RestController
+@RequestMapping("/job")
+public class JobController {
+
+    @Autowired
+    private JobService jobService;
+
+    //getAllJob
+//    @GetMapping("/getAll")
+//    public ResponseEntity<?> getAllJob(){
+//        List<CompanyJobDTO> allJob=jobService.getAllJob();
+//        if(!allJob.isEmpty()){
+//            return ResponseEntity.ok(allJob);
+//        }
+//        else{
+//            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("not fetched all job info");
+//        }
+//    }
+
+    // getByJobId
+//    @GetMapping("/getById/{id}")
+//    public ResponseEntity<?>getByJobId(@PathVariable("id") Long jobId){
+//        JobModel job=jobService.getByJobId(jobId);
+//        if(job!=null){
+//            return ResponseEntity.ok(job);
+//        }
+//        else{
+//            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("not fetched job info based on given id");
+//        }
+//    }
+
+
+    @GetMapping("/getById/{id}")
+    public ResponseEntity<?>getByJobId(@PathVariable("id") Long jobId){
+        CompanyJobDTO jobComp=jobService.getByJobId(jobId);
+        if(jobComp!=null){
+            return ResponseEntity.ok(jobComp);
+        }
+        else{
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("not fetched jobComp info based on given id");
+        }
+    }
+
+
+
+
+    // createJob
+    @PostMapping("/post")
+    public ResponseEntity<?>createJob(@RequestBody JobModel jobModel){
+        JobModel job=jobService.createJob(jobModel);
+        if(job!=null){
+            return ResponseEntity.ok("created successfully");
+        }
+        else{
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("not created");
+        }
+    }
+
+    // updateJob
+    @PutMapping("/modify/{id}")
+    public ResponseEntity<?>updateJob(@PathVariable("id") Long jobId,@RequestBody JobModel jobModel){
+        JobModel job=jobService.updateJob(jobId,jobModel);
+        if(job!=null){
+            return ResponseEntity.ok(job);
+        }
+        else{
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("not updated");
+        }
+    }
+
+    // deleteCompanyById
+    @DeleteMapping("del/{id}")
+    public ResponseEntity<?>deleteByJobId(@PathVariable("id") Long jobId){
+        try{
+            jobService.deleteJobById(jobId);
+            return ResponseEntity.ok("job deleted successfully based on id");
+        }
+        catch(Exception e){
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("not deleted job based on given id");
+        }
+    }
+
+
+
+    @GetMapping("/getBy/{jobName}")
+    public ResponseEntity<?>getByJobName(@PathVariable String jobName){
+        CompanyJobDTO allJob=jobService.getByjobName(jobName);
+        if(allJob!=null){
+            return ResponseEntity.ok(allJob);
+        }
+        else{
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("not fetched by job name");
+        }
+
+    }
+
+
+
+}
